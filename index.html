@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR-Code Etiketten-Generator</title>
+    
+    <!-- Externe Bibliotheken einbinden -->
+    <!-- SheetJS zum Auslesen von Excel (.xlsx) und LibreOffice (.ods) Dateien -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- QRious Bibliothek für zuverlässige QR-Code Generierung -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+
+    <style>
+        /* ========================================================
+           SCREEN STYLES (UI für den Browser)
+           ======================================================== */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .ui-container {
+            max-width: 600px;
+            margin: 0 auto 20px auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 20px;
+            color: #333;
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+
+        /* Tabs für Upload / Manuelle Eingabe */
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ddd;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            color: #666;
+            outline: none;
+        }
+
+        .tab-btn.active {
+            color: #007bff;
+            border-bottom: 2px solid #007bff;
+            font-weight: bold;
+            margin-bottom: -2px;
+        }
+
+        .tab-content {
+            display: none;
+            margin-bottom: 20px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        /* Formular für manuelle Eingabe */
+        .manual-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .manual-form input {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .manual-form input.full-width {
+            grid-column: span 2;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+
+        button.secondary {
+            background-color: #28a745;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .info-text {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .status-bar {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        /* Container für die Druck-Vorschau auf dem Bildschirm */
+        #print-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        /* ========================================================
+           PRINT STYLES (Layout für den Drucker)
+           ======================================================== */
+        .page {
+            width: 210mm;
+            height: 297mm;
+            background: white;
+            padding: 21.6mm 8mm; 
+            box-sizing: border-box;
+            display: flex;
+            flex-wrap: wrap;
+            align-content: flex-start;
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+            page-break-after: always;
+            break-after: page;
+        }
+
+        .label {
+            width: 97.0mm;
+            height: 42.3mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 2mm;
+            overflow: hidden;
+        }
+
+        .label .qr-code {
+            width: 30mm;
+            height: 30mm;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .label .qr-code img {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .label .device-number {
+            margin-top: 2mm;
+            font-family: Arial, sans-serif;
+            font-size: 12pt;
+            font-weight: bold;
+            color: #000;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            width: 100%;
+        }
+
+        /* Spezifische CSS-Regeln, die NUR beim Drucken greifen */
+        @media print {
+            @page {
+                size: A4;
+                margin: 0;
+            }
+            body {
+                background: none;
+                padding: 0;
+            }
+            .ui-container {
+                display: none !important;
+            }
+            #print-container {
+                display: block;
+                gap: 0;
+            }
+            .page {
+                box-shadow: none;
+                margin: 0;
+                padding: 21.6mm 8mm; 
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Benutzeroberfläche -->
+    <div class="ui-container">
+        <h1>QR-Code Etikettendruck</h1>
+        
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('upload')">Datei hochladen</button>
+            <button class="tab-btn" onclick="switchTab('manual')">Manuelle Eingabe</button>
+        </div>
+
+        <!-- Tab: Upload -->
+        <div id="tab-upload" class="tab-content active">
+            <p class="info-text">
+                Unterstützt Excel (.xlsx) und LibreOffice (.ods).<br>
+                Zwingende Spaltenköpfe: <strong>#lfd. Nr., Vorname, Name, Leihnummer, Seriennummer</strong>
+            </p>
+            <input type="file" id="excelFile" accept=".xlsx, .xls, .csv, .ods">
+        </div>
+
+        <!-- Tab: Manuell -->
+        <div id="tab-manual" class="tab-content">
+            <p class="info-text">Trage die Daten einzeln ein und füge sie zur Liste hinzu.</p>
+            <div class="manual-form">
+                <input type="text" id="m-lfd" placeholder="#lfd. Nr.">
+                <input type="text" id="m-geraet" placeholder="Leihnummer">
+                <input type="text" id="m-vorname" placeholder="Vorname">
+                <input type="text" id="m-name" placeholder="Nachname">
+                <input type="text" id="m-serien" class="full-width" placeholder="Seriennummer">
+            </div>
+            <br>
+            <button class="secondary" onclick="addManualEntry()">+ Datensatz hinzufügen</button>
+            <button onclick="clearData()" style="background-color: #dc3545;">Liste leeren</button>
+        </div>
+
+        <div class="status-bar" id="statusBar">
+            Bereit: 0 Datensätze in der Liste.
+        </div>
+        
+        <div class="form-group">
+            <button id="btnGenerate" disabled>Etiketten generieren</button>
+            <button id="btnPrint" disabled onclick="window.print()">Drucken</button>
+        </div>
+    </div>
+
+    <!-- Hier werden die DIN A4 Seiten und Etiketten reingeneriert -->
+    <div id="print-container"></div>
+
+    <script>
+        let excelData = [];
+
+        const fileInput = document.getElementById('excelFile');
+        const btnGenerate = document.getElementById('btnGenerate');
+        const btnPrint = document.getElementById('btnPrint');
+        const printContainer = document.getElementById('print-container');
+        const statusBar = document.getElementById('statusBar');
+
+        // Tabs wechseln
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Status und Buttons aktualisieren
+        function updateStatus() {
+            statusBar.innerText = `${excelData.length} Datensätze in der Liste bereit für den Druck.`;
+            btnGenerate.disabled = excelData.length === 0;
+            // Druck-Button deaktivieren, bis neu generiert wurde
+            btnPrint.disabled = true;
+            printContainer.innerHTML = ''; 
+        }
+
+        // Daten komplett löschen
+        function clearData() {
+            excelData = [];
+            fileInput.value = '';
+            updateStatus();
+        }
+
+        // 1. Manuelle Eingabe hinzufügen
+        function addManualEntry() {
+            const lfd = document.getElementById('m-lfd').value.trim();
+            const vorname = document.getElementById('m-vorname').value.trim();
+            const name = document.getElementById('m-name').value.trim();
+            const geraet = document.getElementById('m-geraet').value.trim();
+            const serien = document.getElementById('m-serien').value.trim();
+
+            if (!geraet && !name && !serien) {
+                alert("Bitte fülle zumindest ein paar Felder aus.");
+                return;
+            }
+
+            excelData.push({
+                '#lfd. Nr.': lfd,
+                'Vorname': vorname,
+                'Name': name,
+                'Leihnummer': geraet,
+                'Seriennummer': serien
+            });
+
+            // Felder nach Eingabe leeren
+            document.getElementById('m-lfd').value = '';
+            document.getElementById('m-vorname').value = '';
+            document.getElementById('m-name').value = '';
+            document.getElementById('m-geraet').value = '';
+            document.getElementById('m-serien').value = '';
+
+            updateStatus();
+        }
+
+        // 2. Datei (Excel/LibreOffice) einlesen
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                // XLSX (SheetJS) kann auch .ods (LibreOffice) problemlos lesen
+                const workbook = XLSX.read(data, {type: 'array'});
+                
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                
+                const newData = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
+                
+                if (newData.length > 0) {
+                    excelData = excelData.concat(newData); // An bestehende Liste anhängen
+                    updateStatus();
+                    alert(`${newData.length} Datensätze aus Datei erfolgreich hinzugefügt.`);
+                } else {
+                    alert("Die hochgeladene Datei enthält keine Daten.");
+                }
+                
+                // Input zurücksetzen, damit gleiche Datei erneut hochgeladen werden könnte
+                fileInput.value = '';
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 3. Etiketten generieren
+        btnGenerate.addEventListener('click', function() {
+            printContainer.innerHTML = '';
+            if (excelData.length === 0) return;
+
+            // In 12er-Blöcke (Seiten) aufteilen
+            const labelsPerPage = 12;
+            for (let i = 0; i < excelData.length; i += labelsPerPage) {
+                const chunk = excelData.slice(i, i + labelsPerPage);
+                createPage(chunk);
+            }
+
+            btnPrint.disabled = false;
+        });
+
+        // Funktion zum Erstellen einer DIN A4 Seite
+        function createPage(dataChunk) {
+            const pageDiv = document.createElement('div');
+            pageDiv.className = 'page';
+
+            dataChunk.forEach(row => {
+                const labelDiv = document.createElement('div');
+                labelDiv.className = 'label';
+
+                const qrContainer = document.createElement('div');
+                qrContainer.className = 'qr-code';
+                
+                const textContainer = document.createElement('div');
+                textContainer.className = 'device-number';
+                
+                const lfdNr = row['#lfd. Nr.'] || '';
+                const vorname = row['Vorname'] || '';
+                const name = row['Name'] || '';
+                const geraeteNr = row['Leihnummer'] || '';
+                const serienNr = row['Seriennummer'] || '';
+
+                const qrContent = `Lfd. Nr.: ${lfdNr}\nName: ${vorname} ${name}\nLeihnummer: ${geraeteNr}\nSeriennummer: ${serienNr}`;
+
+                textContainer.textContent = geraeteNr || '-';
+
+                labelDiv.appendChild(qrContainer);
+                labelDiv.appendChild(textContainer);
+                pageDiv.appendChild(labelDiv);
+
+                // Bild-Element für den QR-Code erstellen
+                const qrImg = document.createElement('img');
+                qrContainer.appendChild(qrImg);
+
+                // QRious generiert die Codes synchron und passt die Größe automatisch an
+                if (typeof QRious === 'undefined') {
+                    qrContainer.innerText = "Ladefehler";
+                    console.error("QRious Bibliothek konnte nicht geladen werden. Bitte Adblocker prüfen.");
+                } else {
+                    try {
+                        const qr = new QRious({
+                            value: qrContent,
+                            size: 110,
+                            level: 'M' // Mittlere Fehlerkorrektur
+                        });
+                        qrImg.src = qr.toDataURL();
+                    } catch (err) {
+                        console.error("Fehler beim Generieren des QR-Codes:", err);
+                        qrContainer.innerText = "Fehler";
+                    }
+                }
+            });
+
+            printContainer.appendChild(pageDiv);
+        }
+    </script>
+</body>
+</html>
